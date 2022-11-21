@@ -6,6 +6,8 @@ Public show_on_screen As Long
 Public one_screen_maximise As Long
 ' ----
 
+Public Declare Function CallWindowProc Lib "user32" Alias "CallWindowProcA" (ByVal lpPrevWndFunc As Long, ByVal hwnd As Long, ByVal Msg As Long, ByVal wParam As Long, ByVal lParam As Long) As Long
+Public Declare Function SetWindowLong Lib "user32" Alias "SetWindowLongA" (ByVal hwnd As Long, ByVal nIndex As Long, ByVal dwNewLong As Long) As Long
 Public Declare Function GetClassName Lib "user32" Alias "GetClassNameA" (ByVal hwnd As Long, ByVal lpClassName As String, ByVal nMaxCount As Long) As Long
 Public Declare Function GetWindowLong Lib "user32" Alias "GetWindowLongA" (ByVal hwnd As Long, ByVal nIndex As Long) As Long
 Public Declare Function SystemParametersInfo Lib "user32" Alias "SystemParametersInfoA" (ByVal uAction As Long, ByVal uParam As Long, lpvParam As Any, ByVal lWinIni As Long) As Long
@@ -27,8 +29,21 @@ Public Declare Function GetWindow Lib "user32" (ByVal hwnd As Long, ByVal wCmd A
 Public Declare Function SetCBTSHLHook& Lib "dscbtshl" (ByVal Hook&, ByVal AdrCBT&, ByVal AdrSHL&)
 Public Declare Function GetFileName& Lib "dscbtshl" (ByVal hwnd&, ByVal FileName$)
 Public Declare Function GetWindowPlacement Lib "user32" (ByVal hwnd As Long, lpwndpl As WINDOWPLACEMENT) As Long
-Private Declare Function AdjustWindowRectEx Lib "user32" (lpRect As RECT, ByVal dsStyle As Long, ByVal bMenu As Long, ByVal dwEsStyle As Long) As Long
-Private Declare Function MoveWindow Lib "user32" (ByVal hwnd As Long, ByVal x As Long, ByVal y As Long, ByVal nWidth As Long, ByVal nHeight As Long, ByVal bRepaint As Long) As Long
+Public Declare Function AdjustWindowRectEx Lib "user32" (lpRect As RECT, ByVal dsStyle As Long, ByVal bMenu As Long, ByVal dwEsStyle As Long) As Long
+Public Declare Function MoveWindow Lib "user32" (ByVal hwnd As Long, ByVal x As Long, ByVal y As Long, ByVal nWidth As Long, ByVal nHeight As Long, ByVal bRepaint As Long) As Long
+Public Declare Function SetWinEventHook Lib "user32.dll" (ByVal eventMin As Long, ByVal eventMax As Long, ByVal hmodWinEventProc As Long, ByVal pfnWinEventProc As Long, ByVal idProcess As Long, ByVal idThread As Long, ByVal dwFlags As Long) As Long
+Public Declare Function UnhookWinEvent Lib "user32.dll" (ByVal lHandle As Long) As Long
+
+Public Type WINEVENTPROC
+    hWinEventHook As Long
+    event As Long
+    hwnd As Long
+    idObject As Long
+    idChild As Long
+    idEventThread As Long
+    dwmsEventTime As Long
+End Type
+
 Public Type RECT
     Left As Long
     Top As Long
@@ -132,53 +147,96 @@ Public Const WS_DLGFRAME = &H400000
 Public Const WS_THICKFRAME = &H40000
 Public Const WS_CAPTION = &HC00000                  ' WS_BORDER Or WS_DLGFRAME
 Public Const WS_EX_CLIENTEDGE = &H200
-'Styles
-Const WS_CHILD = &H40000000
-Const WS_CHILDWINDOW = WS_CHILD
-Const WS_CLIPCHILDREN = &H2000000
-Const WS_CLIPSIBLINGS = &H4000000
-Const WS_DISABLED = &H8000000
-Const WS_GROUP = &H20000
-Const WS_MINIMIZE = &H20000000
-Const WS_ICONIC = WS_MINIMIZE
-Const WS_MAXIMIZE = &H1000000
-Const WS_MAXIMIZEBOX = &H10000
-Const WS_MINIMIZEBOX = &H20000
-Const WS_POPUP = &H80000000
-Const WS_SYSMENU = &H80000
-Const WS_POPUPWINDOW = (WS_POPUP Or WS_BORDER Or WS_SYSMENU)
-Const WS_SIZEBOX = WS_THICKFRAME
-Const WS_TABSTOP = &H10000
-Const WS_VISIBLE = &H10000000
+Public Const WS_CHILD = &H40000000
+Public Const WM_USER = &H400
 
-'Extended Styles
-Const WS_EX_ACCEPTFILES = &H10&
-Const WS_EX_APPWINDOW = &H40000
-Const WS_EX_COMPOSITED = &H2000000
-Const WS_EX_CONTEXTHELP = &H400
-Const WS_EX_CONTROLPARENT = &H10000
-Const WS_EX_DLGMODALFRAME = &H1
-Const WS_EX_LAYERED = &H80000
-Const WS_EX_LAYOUTRTL = &H400000
-Const WS_EX_LEFT = &H0
-Const WS_EX_MDICHILD = &H40
-Const WS_EX_NOACTIVATE = &H8000000
-Const WS_EX_NOINHERITLAYOUT = &H100000
-Const WS_EX_NOPARENTNOTIFY = &H4
-Const WS_EX_TOPMOST = &H8
-Const WS_EX_TOOLWINDOW = &H80
-Const WS_EX_WINDOWEDGE = &H100
-Const WS_EX_OVERLAPPEDWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_CLIENTEDGE)
-Const WS_EX_PALETTEWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_TOOLWINDOW Or WS_EX_TOPMOST)
-Const WS_EX_RIGHT = &H1000
-Const WS_EX_RIGHTSCROLLBAR = &H0
-Const WS_EX_RTLREADING = &H2000
-Const WS_EX_STATICEDGE = &H20000
-Const WS_EX_TRANSPARENT = &H20
-Const WS_EX_LEFTSCROLLBAR = &H4000
-Const WS_EX_LTRREADING = &H0
+Public Const EVENT_MIN = 1&
+Public Const ROLE_COMBOBOX = &H2E&
+Public Const OB_ACCELERATORCHANGE = &H8012&
+Public Const SYS_ALERT = 2&
+Public Const WINEVENT_SKIPOWNPROCESS = 2&
+Public Const OB_REORDER = &H8004&
+Public Const EVENT_SYSTEM_SWITCHSTART = 20
+Public Const GWL_WNDPROC = (-4)
 
 Const SPI_GETWORKAREA = 48
+Public OldWindowProc As Long
+Public hMenu As Long
+Public settings As clsINI
+Public nid As NOTIFYICONDATA
+Public LHook As Long
+Sub Main()
+
+    Dim uRegMsg As Long
+    Dim i As Long
+    Dim lhWndTop As Long
+    Dim lhWnd As Long
+    Dim cx As Long
+    Dim cy As Long
+    Dim hIconLarge As Long
+    Dim hIconSmall As Long
+      
+    Load frmMain
+    frmMain.Caption = " Multi Monitor Tools Version " & App.Major & "." & App.Minor & "." & App.Revision
+    
+    Set settings = New clsINI
+    
+    hMenu = CreatePopupMenu()
+    AppendMenu hMenu, MF_STRING, 1, "&Setup"
+    AppendMenu hMenu, MF_SEPARATOR, 2, ByVal 0&
+    AppendMenu hMenu, MF_STRING, 3, "E&xit"
+    
+    ' Find VB's hidden parent window:
+    lhWnd = frmMain.hwnd
+    lhWndTop = lhWnd
+    Do While Not (lhWnd = 0)
+       lhWnd = GetWindow(lhWnd, GW_OWNER)
+       If Not (lhWnd = 0) Then
+          lhWndTop = lhWnd
+       End If
+    Loop
+    
+    cx = GetSystemMetrics(SM_CXICON)
+    cy = GetSystemMetrics(SM_CYICON)
+    hIconLarge = LoadImageAsString(App.hInstance, "AAA", IMAGE_ICON, cx, cy, LR_LOADMAP3DCOLORS)
+    SendMessageLong lhWndTop, WM_SETICON, ICON_BIG, hIconLarge
+    SendMessageLong frmMain.hwnd, WM_SETICON, ICON_BIG, hIconLarge
+    
+    cx = GetSystemMetrics(SM_CXSMICON)
+    cy = GetSystemMetrics(SM_CYSMICON)
+    hIconSmall = LoadImageAsString(App.hInstance, "AAA", IMAGE_ICON, cx, cy, LR_LOADMAP3DCOLORS)
+    SendMessageLong lhWndTop, WM_SETICON, ICON_SMALL, hIconSmall
+    SendMessageLong frmMain.hwnd, WM_SETICON, ICON_SMALL, hIconSmall
+    
+    With nid
+        .cbSize = Len(nid)
+        .hwnd = frmMain.hwnd
+        .uId = vbNull
+        .uFlags = NIF_ICON Or NIF_TIP Or NIF_MESSAGE
+        .uCallBackMessage = WM_USER
+        .hIcon = hIconSmall
+        .szTip = frmMain.Caption & vbNullChar
+    End With
+
+    Shell_NotifyIcon NIM_ADD, nid
+    
+    OldWindowProc = SetWindowLong(frmMain.hwnd, GWL_WNDPROC, AddressOf WindowProc)
+'    Call SetCBTSHLHook(-1, AddressOf cbtCallback, AddressOf shlCallback)
+    Call SetCBTSHLHook(-1, AddressOf cbtCallback, 0)
+    LHook = SetWinEventHook(EVENT_MIN, OB_ACCELERATORCHANGE, 0, AddressOf WinEventFunc, 0, 0, WINEVENT_SKIPOWNPROCESS)
+'    LHook = SetWinEventHook(SYS_ALERT, OB_ACCELERATORCHANGE, 0&, AddressOf WinEventFunc, 0, 0, WINEVENT_SKIPOWNPROCESS)
+
+End Sub
+Sub shutdown()
+    
+    UnhookWinEvent LHook
+    Call SetCBTSHLHook(0, 0, 0)
+    DestroyMenu hMenu
+    Shell_NotifyIcon NIM_DELETE, nid
+    SetWindowLong frmMain.hwnd, GWL_WNDPROC, OldWindowProc
+    Unload frmMain
+
+End Sub
 Public Function cbtCallback(ByVal hwnd As Long, ByVal ncode As Long) As Long
 
     Dim height As Long
@@ -188,6 +246,9 @@ Public Function cbtCallback(ByVal hwnd As Long, ByVal ncode As Long) As Long
     Dim R As RECT
     Dim lpClassName As String
     Dim lngCurStyle As Long
+    Dim sBuf As String
+    Dim iPos As Long
+    Dim ClassName As String
     WinEst.Length = Len(WinEst)
     
     If ncode = HCBT_MINMAX And one_screen_maximise = 1 Then
@@ -204,26 +265,21 @@ Public Function cbtCallback(ByVal hwnd As Long, ByVal ncode As Long) As Long
                 MoveWindow hwnd, R.Left, R.Top, R.Right - R.Left, R.Bottom - R.Top, True
             End If
         End If
-'    ElseIf ncode = HCBT_CREATEWND Then
-'        If Not (lngCurStyle Or WS_DLGFRAME) = lngCurStyle Then
-'            rtn = GetWindowPlacement(hwnd, WinEst)
-'            Debug.Print "WS_DLGFRAME"
-'            Debug.Print WinEst.rcNormalPosition.Bottom
-'            Debug.Print WinEst.rcNormalPosition.Top
-'            Debug.Print WinEst.rcNormalPosition.Left
-'            Debug.Print WinEst.rcNormalPosition.Right
-'        End If
-'
-'        lpClassName = Space(256)
-'        rtn = GetClassName(hwnd, lpClassName, 256)
-'        If Trim(lpClassName) = "TNASTYNAGSCREEN" & vbNullChar Then
-'            rtn = GetWindowPlacement(hwnd, WinEst)
-'
-'        End If
-'        Debug.Print lpClassName
-'    Else
-'        showStyle hwnd
-'        Debug.Print "cbt=" & ncode, hwnd
+    ElseIf ncode = HCBT_CREATEWND Then
+        sBuf = String$(255, 0)
+        GetClassName hwnd, sBuf, 255
+        iPos = InStr(sBuf, Chr$(0))
+        If iPos > 1 Then
+            ClassName = Left$(sBuf, iPos - 1)
+        End If
+        If (InStr(ClassName, "#32770")) Then
+            Debug.Print "Dialog created"
+        End If
+        If (InStr(ClassName, "#32771")) Then
+            Debug.Print "Task switch created"
+        End If
+    Else
+        Debug.Print "cbt=" & ncode, hwnd
     End If
 
 End Function
@@ -232,67 +288,68 @@ Public Function shlCallback(ByVal hwnd As Long, ByVal ncode As Long) As Long
     Debug.Print "shl=" & ncode, hwnd
 
 End Function
+Public Function WinEventFunc(ByVal HookHandle As Long, ByVal LEvent As Long, ByVal hwnd As Long, ByVal idObject As Long, ByVal idChild As Long, ByVal idEventThread As Long, ByVal dwmsEventTime As Long) As Long
+    
+    Dim rRect As RECT
+    Dim pPoint As POINTAPI
+    Dim onescreen As Long
+    Dim onscreen As Long
 
-Public Sub showStyle(hwnd As Long)
+    If LEvent = EVENT_SYSTEM_SWITCHSTART Then
+        onescreen = GetSystemMetrics(SM_CXFULLSCREEN) / number_of_screens
+        If show_on_screen = 0 Then
+            GetCursorPos pPoint
+            onscreen = RoundToValue(pPoint.x / onescreen, 1, True)
+        Else
+            onscreen = show_on_screen
+        End If
+        GetWindowRect hwnd, rRect
+        SetWindowPos hwnd, vbNull, ((onscreen - 1) * onescreen) + (onescreen / 2) - (rRect.Right - rRect.Left) / 2, (GetSystemMetrics(SM_CYFULLSCREEN) / 2) - (rRect.Bottom - rRect.Top) / 2, 0, 0, SWP_NOSIZE
+    End If
+    WinEventFunc = 0
+    
+End Function
+Public Function WindowProc(ByVal hwnd As Long, ByVal Msg As Long, ByVal wParam As Long, ByVal lParam As Long) As Long
+    
+    Dim Result As Long
+    Dim Pt As POINTAPI
+    
+    If frmMain.hwnd = hwnd And Msg = WM_USER Then
+        Select Case lParam
+            Case WM_LBUTTONUP
+                frmMain.showSetup
+            Case WM_LBUTTONDBLCLK
+                frmMain.showSetup
+            Case WM_RBUTTONUP
+                Result = SetForegroundWindow(frmMain.hwnd)
+                GetCursorPos Pt
+                Result = TrackPopupMenuEx(hMenu, TPM_LEFTALIGN Or TPM_RETURNCMD Or TPM_RIGHTBUTTON, Pt.x, Pt.y, frmMain.hwnd, ByVal 0&)
+                Select Case Result
+                Case 1
+                    frmMain.showSetup
+                Case 3
+                    shutdown
+                Case Else
+                    WindowProc = CallWindowProc(OldWindowProc, hwnd, Msg, wParam, lParam)
+                End Select
+        End Select
+    Else
+        WindowProc = CallWindowProc(OldWindowProc, hwnd, Msg, wParam, lParam)
+    End If
 
-    Dim lngCurStyle As Long
+End Function
+Public Function RoundToValue(ByVal nValue, nCeiling As Double, Optional RoundUp As Boolean = True) As Double
+    
+    Dim tmp As Integer
+    Dim tmpVal
+    If Not IsNumeric(nValue) Then Exit Function
+    nValue = CDbl(nValue)
+    
+    tmpVal = ((nValue / nCeiling) + (-0.5 + (RoundUp And 1)))
+    tmp = Fix(tmpVal)
+    tmpVal = CInt((tmpVal - tmp) * 10 ^ 0)
+    nValue = tmp + tmpVal / 10 ^ 0
 
-    lngCurStyle = GetWindowLong(hwnd, GWL_STYLE)
-    If (lngCurStyle Or WS_BORDER) = lngCurStyle Then Debug.Print "WS_BORDER"
-    If (lngCurStyle Or WS_CHILD) = lngCurStyle Then Debug.Print "WS_CHILD"
-    If (lngCurStyle Or WS_DLGFRAME) = lngCurStyle Then Debug.Print "WS_DLGFRAME"
-    If (lngCurStyle Or WS_POPUP) = lngCurStyle Then Debug.Print "WS_POPUP"
-
-
-'Styles
-'Const WS_BORDER = &H800000
-'Const WS_CAPTION = &HC00000
-'Const WS_CHILD = &H40000000
-'Const WS_CHILDWINDOW = WS_CHILD
-'Const WS_CLIPCHILDREN = &H2000000
-'Const WS_CLIPSIBLINGS = &H4000000
-'Const WS_DISABLED = &H8000000
-'Const WS_DLGFRAME = &H400000
-'Const WS_GROUP = &H20000
-'Const WS_MINIMIZE = &H20000000
-'Const WS_ICONIC = WS_MINIMIZE
-'Const WS_MAXIMIZE = &H1000000
-'Const WS_MAXIMIZEBOX = &H10000
-''Const WS_MINIMIZEBOX = &H20000
-'Const WS_POPUP = &H80000000
-'Const WS_SYSMENU = &H80000
-'Const WS_POPUPWINDOW = (WS_POPUP Or WS_BORDER Or WS_SYSMENU)'
-'Const WS_THICKFRAME = &H40000
-'Const WS_SIZEBOX = WS_THICKFRAME
-'Const WS_TABSTOP = &H10000
-'Const WS_VISIBLE = &H10000000
-
-'Extended Styles
-'Const WS_EX_ACCEPTFILES = &H10&
-'Const WS_EX_APPWINDOW = &H40000
-'Const WS_EX_CLIENTEDGE = &H200
-'Const WS_EX_COMPOSITED = &H2000000
-'Const WS_EX_CONTEXTHELP = &H400
-'Const WS_EX_CONTROLPARENT = &H10000
-'Const WS_EX_DLGMODALFRAME = &H1
-'Const WS_EX_LAYERED = &H80000
-'Const WS_EX_LAYOUTRTL = &H400000
-'Const WS_EX_LEFT = &H0
-'Const WS_EX_MDICHILD = &H40
-'Const WS_EX_NOACTIVATE = &H8000000
-'Const WS_EX_NOINHERITLAYOUT = &H100000
-'Const WS_EX_NOPARENTNOTIFY = &H4
-'Const WS_EX_TOPMOST = &H8
-'Const WS_EX_TOOLWINDOW = &H80
-'Const WS_EX_WINDOWEDGE = &H100
-'Const WS_EX_OVERLAPPEDWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_CLIENTEDGE)
-'Const WS_EX_PALETTEWINDOW = (WS_EX_WINDOWEDGE Or WS_EX_TOOLWINDOW Or WS_EX_TOPMOST)
-'Const WS_EX_RIGHT = &H1000
-'Const WS_EX_RIGHTSCROLLBAR = &H0
-'Const WS_EX_RTLREADING = &H2000
-'Const WS_EX_STATICEDGE = &H20000
-'Const WS_EX_TRANSPARENT = &H20
-'Const WS_EX_LEFTSCROLLBAR = &H4000
-'Const WS_EX_LTRREADING = &H0
-
-End Sub
+    RoundToValue = nValue * nCeiling
+       
+End Function
